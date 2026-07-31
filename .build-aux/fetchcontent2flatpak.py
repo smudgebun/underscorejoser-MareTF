@@ -149,6 +149,58 @@ def to_flatpak(sources: list[FetchContent]):
 
     return (sources_json, "\n".join(flags))
 
+def parse_nixout(command: list[str]) -> str:
+    out: str = ""
+
+    process = subprocess.run(
+        command,
+        text=True,
+        bufsize=1,
+        capture_output=True,
+    )
+
+    if process.stdout:
+        out = process.stdout
+    return out
+
+def nix_fetch(url: str, rev: str, tag: str):
+    nix_prefetch_git = shutil.which("nix-prefetch-git")
+    hash: str = "FAILED"
+    if not nix_prefetch_git:
+        raise FileNotFoundError("nix-prefetch-git")
+
+    if rev:
+        command = [
+            nix_prefetch_git,
+            "--url",
+            url,
+            "--rev",
+            rev,
+            "--quiet",
+            "--fetch-submodules",
+            "--no-add-path"
+        ]
+    elif tag:
+        command = [
+            nix_prefetch_git,
+            "--url",
+            url,
+            "--rev",
+            f"refs/tags/{tag}",
+            "--quiet",
+            "--fetch-submodules",
+            "--no-add-path"
+        ]
+    else:
+        command = []
+
+    print(f"-- Prefetching {url}")
+    try:
+        hash = json.loads(f"{parse_nixout(command)}")['hash']
+    except ValueError:
+        print(f"-- Nix Prefetch failed on {url}. Re-run or fetch manually")
+
+    return hash
 
 def to_nix(sources: list[FetchContent]):
     lines: list[str] = []
@@ -163,7 +215,7 @@ def to_nix(sources: list[FetchContent]):
             lines.append(f'  tag = "{source.tag}";')
         elif source.commit:
             lines.append(f'  rev = "{source.commit}";')
-        lines.append('  hash = "TODO";')  # I don't use nix, btw
+        lines.append(f'  hash = "{nix_fetch(f"{source.url}",f"{source.commit}",f"{source.tag}")}";')
         lines.append("};\n")
 
         env = (
